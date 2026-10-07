@@ -940,10 +940,14 @@ const Native = (function(){
 // Folds the task id into a stable int, then tags on the attempt (1-3) as
 // the last digit so each task's 3 nags get distinct, deterministic IDs —
 // letting us cancel/reschedule them later without tracking IDs separately.
-function nativeNotifId(taskId, attempt){
+// occ is the occurrence index (0 = the task's current dueAt, 1 = the next
+// one, ...), so pre-scheduled future days get their own IDs too.
+const MAX_OCCURRENCES = 5; // ID scheme below supports up to 10
+const OCCURRENCES_AHEAD = { daily: 5, weekly: 3, monthly: 2 };
+function nativeNotifId(taskId, occ, attempt){
   let h = 0;
   for(let i=0;i<taskId.length;i++){ h = (h * 31 + taskId.charCodeAt(i)) | 0; }
-  return (Math.abs(h) % 1000000) * 10 + attempt;
+  return (Math.abs(h) % 1000000) * 100 + occ * 10 + attempt;
 }
 
 // How many of the 3 nags *should* have fired by now, purely from elapsed
@@ -993,7 +997,10 @@ function reminderCopy(t, attempt){
 // one-off task that never nags in the first place).
 async function cancelNativeReminders(taskId){
   if(!Native.isNative || !Native.LocalNotifications) return;
-  const ids = [1,2,3].map(a => ({ id: nativeNotifId(taskId, a) }));
+  const ids = [];
+  for(let o=0;o<MAX_OCCURRENCES;o++){
+    for(let a=1;a<=MAX_NAGS;a++){ ids.push({ id: nativeNotifId(taskId, o, a) }); }
+  }
   try{ await Native.LocalNotifications.cancel({ notifications: ids }); }catch(e){}
 }
 
@@ -1005,16 +1012,27 @@ async function scheduleNativeReminders(t){
   if(!Native.isNative || !Native.LocalNotifications) return;
   await cancelNativeReminders(t.id);
   if(!t.repeat || !t.dueAt) return;
-  const due = new Date(t.dueAt).getTime();
-  const notifications = [1,2,3].map(attempt=>{
-    const copy = reminderCopy(t, attempt);
-    return {
-      id: nativeNotifId(t.id, attempt),
-      title: copy.title,
-      body: copy.body,
-      schedule: { at: new Date(due + NAG_OFFSETS_MS[attempt-1]) }
-    };
-  }).filter(n => n.schedule.at.getTime() > Date.now()); // skip any that would already be in the past
+  // Pre-schedule the next few occurrences too, so alerts keep firing even if
+  // the app isn't opened for a few days. Opening the app re-runs this and
+  // tops the window back up.
+  const ahead = Math.min(OCCURRENCES_AHEAD[t.repeat] || 1, MAX_OCCURRENCES);
+  const all = [];
+  let occDate = new Date(t.dueAt);
+  for(let occ=0; occ<ahead; occ++){
+    const dueMs = occDate.getTime();
+    for(let attempt=1; attempt<=MAX_NAGS; attempt++){
+      const copy = reminderCopy(t, attempt);
+      all.push({
+        id: nativeNotifId(t.id, occ, attempt),
+        title: copy.title,
+        body: copy.body,
+        schedule: { at: new Date(dueMs + NAG_OFFSETS_MS[attempt-1]) }
+      });
+    }
+    occDate = advanceDate(occDate, t.repeat);
+  }
+  // skip any that would already be in the past
+  const notifications = all.filter(n => n.schedule.at.getTime() > Date.now());
   if(notifications.length){
     try{ await Native.LocalNotifications.schedule({ notifications }); }catch(e){}
   }
