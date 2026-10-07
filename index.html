@@ -973,18 +973,18 @@ function reminderCopy(t, attempt){
   if(attempt === 1){
     return {
       title: 'Squig: ' + t.title,
-      body: t.estimateMin ? ('~' + t.estimateMin + ' min · due ' + fmtDue(t.dueAt)) : ('due ' + fmtDue(t.dueAt))
+      body: 'Heads up, this one is up now. Takes about ' + est + '.'
     };
   }
   if(attempt === 2){
     return {
-      title: 'Squig: ' + t.title,
-      body: "Now let's really get it done."
+      title: 'Still open: ' + t.title,
+      body: 'Still waiting on this one. Just start, ' + est + ' is all it takes.'
     };
   }
   return {
-    title: 'Squig',
-    body: "OK, LET'S DO IT RIGHT NOW — IT'S ONLY " + est.toUpperCase() + ' TO GET DONE.'
+    title: 'Last nudge: ' + t.title,
+    body: 'Last reminder for now. Do it now, ' + est + ' and it is off your plate.'
   };
 }
 
@@ -1050,7 +1050,10 @@ function checkReminders(){
       const due = nagsDueByNow(t);
       const fired = t.notifyCount || 0;
       if(due > fired && fired < MAX_NAGS){
-        const attempt = fired + 1;
+        // Fire only the newest alert that's due. Any older ones we missed
+        // (app was closed, or the task just rolled forward past them) are
+        // skipped, not replayed back to back.
+        const attempt = Math.min(due, MAX_NAGS);
         fireReminder(t, attempt);
         t.notifyCount = attempt;
         changed = true;
