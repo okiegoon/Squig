@@ -322,8 +322,12 @@ Focus
 <input id="taskEstimate" type="number" inputmode="numeric" placeholder="15" min="1" max="480">
 </div>
 <div class="field">
-<label for="taskDue" id="dueLabel">Due &amp; remind me (optional)</label>
-<input id="taskDue" type="datetime-local">
+<label for="taskTime" id="dueLabel">Time &amp; remind me (optional)</label>
+<input id="taskTime" type="time">
+</div>
+<div class="field">
+<label for="taskDate" id="dateLabel">Date (optional — defaults to today)</label>
+<input id="taskDate" type="date">
 </div>
 <div class="field" id="everyField" style="display:none">
 <label for="taskEvery">Repeats</label>
@@ -720,20 +724,42 @@ function completeTask(id){
 const addScrim = document.getElementById('addScrim');
 let addContext = 'oneoff';
 const ADD_COPY = {
-  daily: { title:'New daily task', sub:'Repeats every day.', due:'What time, every day?' },
-  weekly: { title:'New weekly task', sub:'Repeats every week.', due:'First occurrence — day & time' },
-  monthly: { title:'New monthly task', sub:'Repeats every month.', due:'First occurrence — date & time' },
-  oneoff: { title:'New task', sub:'A one-off — no repeat.', due:'Due date (optional)' }
+  daily: { title:'New daily task', sub:'Repeats every day.', due:'What time, every day?', date:'Start date (optional — defaults to today)' },
+  weekly: { title:'New weekly task', sub:'Repeats every week.', due:'What time?', date:'First day (optional — defaults to today, and sets the weekday)' },
+  monthly: { title:'New monthly task', sub:'Repeats every month.', due:'What time?', date:'First date (optional — defaults to today, and sets the day of month)' },
+  oneoff: { title:'New task', sub:'A one-off — no repeat.', due:'Time & remind me (optional)', date:'Date (optional — defaults to today)' }
 };
+
+// Turns the add sheet's time + optional date into a due timestamp. A date is
+// optional: with only a time, the task starts today at that time — or
+// tomorrow if that time has already passed, so it doesn't open as overdue.
+function resolveDue(timeVal, dateVal){
+  const [h, m] = timeVal.split(':').map(Number);
+  const d = new Date();
+  if(dateVal){
+    const [y, mo, da] = dateVal.split('-').map(Number);
+    d.setFullYear(y, mo - 1, da);
+    d.setHours(h, m, 0, 0);
+    return { dueAt: d, nextDay: false };
+  }
+  d.setHours(h, m, 0, 0);
+  if(d.getTime() <= Date.now()){
+    d.setDate(d.getDate() + 1);
+    return { dueAt: d, nextDay: true };
+  }
+  return { dueAt: d, nextDay: false };
+}
 function openAddSheet(ctx){
   addContext = ctx;
   const copy = ADD_COPY[ctx];
   document.getElementById('addTitle').textContent = copy.title;
   document.getElementById('addSubhead').textContent = copy.sub;
   document.getElementById('dueLabel').textContent = copy.due;
+  document.getElementById('dateLabel').textContent = copy.date;
   document.getElementById('taskTitle').value = '';
   document.getElementById('taskEstimate').value = '';
-  document.getElementById('taskDue').value = '';
+  document.getElementById('taskTime').value = '';
+  document.getElementById('taskDate').value = '';
   document.getElementById('taskEvery').value = '1';
   document.getElementById('everyField').style.display = ctx === 'weekly' ? '' : 'none';
   addScrim.classList.add('show');
@@ -752,10 +778,13 @@ document.getElementById('saveAdd').addEventListener('click', ()=>{
   const title = document.getElementById('taskTitle').value.trim();
   if(!title){ toast('Give it a name first'); return; }
   const est = parseInt(document.getElementById('taskEstimate').value, 10);
-  const dueVal = document.getElementById('taskDue').value;
+  const timeVal = document.getElementById('taskTime').value;
+  const dateVal = document.getElementById('taskDate').value;
   const repeat = addContext === 'oneoff' ? null : addContext;
-  if(repeat && !dueVal){ toast('Pick a time so this has something to repeat from'); return; }
-  const dueAt = dueVal ? new Date(dueVal).toISOString() : null;
+  if(repeat && !timeVal){ toast('Pick a time so this has something to repeat from'); return; }
+  if(dateVal && !timeVal){ toast('Pick a time for that date'); return; }
+  const due = timeVal ? resolveDue(timeVal, dateVal) : null;
+  const dueAt = due ? due.dueAt.toISOString() : null;
   const newTask = {
     id: uid(),
     title,
@@ -770,7 +799,7 @@ document.getElementById('saveAdd').addEventListener('click', ()=>{
   addScrim.classList.remove('show');
   if(currentMainTab === 'focus') setFocusSub('tasks');
   render();
-  toast('Added');
+  toast(due && due.nextDay ? 'Added · that time has passed, so it starts tomorrow' : 'Added');
   if(dueAt && repeat){
     ensureNotificationPermission();
     scheduleNativeReminders(newTask);

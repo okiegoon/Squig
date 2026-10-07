@@ -25,9 +25,12 @@ no cloud — everything lives in your phone's local storage.
 - **Swipe to complete**, any tab: swipe a card either direction to mark it
   done. Tap it instead to edit its due date/reminder, jump into a focus
   session, or delete it.
-- **Due dates**: Daily/Weekly/Monthly tasks require a due date/time since
-  that's what anchors the repeat schedule. One-off (Focus) tasks can have
-  one but don't have to.
+- **Time first, date optional**: Daily/Weekly/Monthly tasks require a time,
+  since that's what anchors the repeat schedule. A date is optional: leave
+  it empty and the task starts today (or tomorrow, if that time has already
+  passed). Add a date to start later — for weekly tasks it sets the weekday,
+  for monthly tasks the day of the month. One-off (Focus) tasks can have a
+  time and date but don't have to.
 - **Focus tab's Timer** sub-view is the original Pomodoro ring (25 / 50 / 10
   min, or a 5 min break) — tap "Start focus session" on any task, from any
   tab, to attach it and jump straight there.
