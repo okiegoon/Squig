@@ -1,0 +1,10 @@
+node_modules/
+android/build/
+android/app/build/
+android/.gradle/
+.gradle/
+local.properties
+*.apk
+files.zip
+files/
+new-squig-files/
