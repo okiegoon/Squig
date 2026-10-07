@@ -192,12 +192,12 @@ nav.tabs button.active[data-view="monthly"] svg{ stroke:var(--monthly); }
 .sheet .subhead{ font-size:12.5px; color:var(--mist); margin:0 0 16px; }
 .field{ margin-bottom:14px; }
 .field label{ display:block; font-size:12.5px; color:var(--mist); margin-bottom:6px; text-transform:uppercase; letter-spacing:.06em; }
-.field input, .field textarea{
+.field input, .field textarea, .field select{
   width:100%; background:var(--ink); border:1px solid var(--ink-softer);
   color:var(--paper); border-radius:12px; padding:12px 14px;
   font-family:'Inter'; font-size:15px; resize:none;
 }
-.field input:focus, .field textarea:focus{ outline:2px solid var(--ember); outline-offset:1px; }
+.field input:focus, .field textarea:focus, .field select:focus{ outline:2px solid var(--ember); outline-offset:1px; }
 .sheet-actions{ display:flex; gap:10px; margin-top:6px; }
 .sheet-actions .btn{ flex:1; }
 .sheet-secondary-row{ display:flex; gap:10px; margin-top:10px; }
@@ -325,6 +325,13 @@ Focus
 <label for="taskDue" id="dueLabel">Due &amp; remind me (optional)</label>
 <input id="taskDue" type="datetime-local">
 </div>
+<div class="field" id="everyField" style="display:none">
+<label for="taskEvery">Repeats</label>
+<select id="taskEvery">
+<option value="1">Every week</option>
+<option value="2">Every 2 weeks (bi-weekly)</option>
+</select>
+</div>
 <div class="sheet-actions">
 <button class="btn btn-ghost" id="cancelAdd">Cancel</button>
 <button class="btn btn-primary" id="saveAdd">Add task</button>
@@ -339,6 +346,13 @@ Focus
 <div class="field">
 <label for="detailDue" id="detailDueLabel">Due &amp; remind me</label>
 <input id="detailDue" type="datetime-local">
+</div>
+<div class="field" id="detailEveryField" style="display:none">
+<label for="detailEvery">Repeats</label>
+<select id="detailEvery">
+<option value="1">Every week</option>
+<option value="2">Every 2 weeks (bi-weekly)</option>
+</select>
 </div>
 <div class="sheet-secondary-row" id="detailDueActions" style="margin-top:0; margin-bottom:16px;">
 <button class="btn btn-ghost" id="saveDetailDue">Save</button>
@@ -447,10 +461,11 @@ function goToFocusTimer(id){
 function fmtMin(m){ return m + 'm'; }
 
 /* ---------- repeat scheduling ---------- */
-function advanceDate(base, repeat){
+// every: weekly tasks only — 1 = weekly, 2 = bi-weekly. Ignored otherwise.
+function advanceDate(base, repeat, every){
   const d = new Date(base);
   if(repeat === 'daily') d.setDate(d.getDate() + 1);
-  else if(repeat === 'weekly') d.setDate(d.getDate() + 7);
+  else if(repeat === 'weekly') d.setDate(d.getDate() + 7 * (every === 2 ? 2 : 1));
   else if(repeat === 'monthly') d.setMonth(d.getMonth() + 1);
   return d;
 }
@@ -469,7 +484,7 @@ function advanceStaleRepeats(){
     let due = new Date(t.dueAt);
     let moved = false;
     while(due.getTime() < startOfToday.getTime()){
-      due = advanceDate(due, t.repeat);
+      due = advanceDate(due, t.repeat, t.every);
       moved = true;
     }
     if(moved){
@@ -505,7 +520,7 @@ function dueState(iso){
 // based on when the task's next occurrence (if any) will land.
 function pausedUntilText(t){
   if(t.repeat === 'daily') return 'Reminders paused until tomorrow';
-  if(t.repeat === 'weekly') return 'Reminders paused until next week';
+  if(t.repeat === 'weekly') return t.every === 2 ? 'Reminders paused until next time' : 'Reminders paused until next week';
   if(t.repeat === 'monthly') return 'Reminders paused until next month';
   return 'Reminders paused for this task';
 }
@@ -593,6 +608,12 @@ function renderCards(elId, list, accent, emptyText){
       badge.textContent = '~' + fmtMin(t.estimateMin);
       meta.appendChild(badge);
     }
+    if(t.repeat === 'weekly' && t.every === 2){
+      const biweekly = document.createElement('span');
+      biweekly.className = 'badge mono';
+      biweekly.textContent = 'every 2 wks';
+      meta.appendChild(biweekly);
+    }
     if(t.dueAt){
       const state = dueState(t.dueAt);
       const due = document.createElement('span');
@@ -678,11 +699,11 @@ function completeTask(id){
   cancelNativeReminders(t.id);
   if(t.repeat){
     const base = t.dueAt ? new Date(t.dueAt) : new Date();
-    const nextDue = advanceDate(base, t.repeat);
+    const nextDue = advanceDate(base, t.repeat, t.every);
     const next = {
       id: uid(), title: t.title, estimateMin: t.estimateMin,
       createdAt: new Date().toISOString(), dueAt: nextDue.toISOString(),
-      notifyCount: 0, repeat: t.repeat
+      notifyCount: 0, repeat: t.repeat, every: t.every || 1
     };
     tasks.push(next);
     scheduleNativeReminders(next);
@@ -713,9 +734,15 @@ function openAddSheet(ctx){
   document.getElementById('taskTitle').value = '';
   document.getElementById('taskEstimate').value = '';
   document.getElementById('taskDue').value = '';
+  document.getElementById('taskEvery').value = '1';
+  document.getElementById('everyField').style.display = ctx === 'weekly' ? '' : 'none';
   addScrim.classList.add('show');
   setTimeout(()=> document.getElementById('taskTitle').focus(), 150);
 }
+document.getElementById('taskEvery').addEventListener('change', (e)=>{
+  document.getElementById('addSubhead').textContent =
+    e.target.value === '2' ? 'Repeats every 2 weeks.' : ADD_COPY.weekly.sub;
+});
 document.getElementById('fabAdd').addEventListener('click', ()=>{
   openAddSheet(currentMainTab === 'focus' ? 'oneoff' : currentMainTab);
 });
@@ -736,7 +763,8 @@ document.getElementById('saveAdd').addEventListener('click', ()=>{
     createdAt: new Date().toISOString(),
     dueAt,
     notifyCount: 0,
-    repeat
+    repeat,
+    every: repeat === 'weekly' ? parseInt(document.getElementById('taskEvery').value, 10) : 1
   };
   tasks.push(newTask);
   addScrim.classList.remove('show');
@@ -767,6 +795,8 @@ function openDetail(id){
   // Clearing the due date on a repeating task would break its schedule,
   // so that option only shows for one-off tasks.
   document.getElementById('clearDetailDue').style.display = t.repeat ? 'none' : '';
+  document.getElementById('detailEveryField').style.display = t.repeat === 'weekly' ? '' : 'none';
+  document.getElementById('detailEvery').value = String(t.every === 2 ? 2 : 1);
   detailScrim.classList.add('show');
 }
 document.getElementById('saveDetailDue').addEventListener('click', ()=>{
@@ -776,6 +806,7 @@ document.getElementById('saveDetailDue').addEventListener('click', ()=>{
   if(!val){ toast('Pick a date and time first'); return; }
   t.dueAt = new Date(val).toISOString();
   t.notifyCount = 0;
+  if(t.repeat === 'weekly') t.every = parseInt(document.getElementById('detailEvery').value, 10);
   render();
   if(t.repeat){
     ensureNotificationPermission();
@@ -1029,7 +1060,7 @@ async function scheduleNativeReminders(t){
         schedule: { at: new Date(dueMs + NAG_OFFSETS_MS[attempt-1]) }
       });
     }
-    occDate = advanceDate(occDate, t.repeat);
+    occDate = advanceDate(occDate, t.repeat, t.every);
   }
   // skip any that would already be in the past
   const notifications = all.filter(n => n.schedule.at.getTime() > Date.now());
