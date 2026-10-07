@@ -110,6 +110,14 @@ main{ flex:1; padding:4px 20px 20px; }
 .badge.due.due-overdue{ background:#40241f; color:#ff9d85; }
 .badge.paused{ background:transparent; border:1px solid var(--ink-softer); color:var(--mist); font-style:italic; }
 .empty{ color:var(--mist); font-size:13.5px; padding:16px 2px; line-height:1.5; }
+/* Weekly/Monthly "Upcoming" — later occurrences, tap to edit, no swipe */
+.upcoming{ margin-top:28px; }
+.upcoming-head{
+  display:flex; align-items:center; gap:8px; margin-bottom:10px; padding-left:2px;
+  font-size:12px; text-transform:uppercase; letter-spacing:.08em; color:var(--mist); font-weight:600;
+}
+.upcoming-head .count{ margin-left:auto; font-weight:400; }
+.card.upcoming-card{ opacity:.72; cursor:pointer; }
 .fab{
   position:fixed;
   right:calc(20px + max(0px, (100vw - 480px)/2));
@@ -236,12 +244,20 @@ button:focus-visible, input:focus-visible, textarea:focus-visible{ outline:2px s
 <div class="list-head"><span class="dot dot-weekly"></span><h2>Weekly</h2><span class="count" id="count-weekly">0</span></div>
 <div class="list-hint">Swipe done to clear it — it'll come back next week.</div>
 <div class="cards" id="cards-weekly"></div>
+<div class="upcoming" id="upcoming-weekly" style="display:none">
+<div class="upcoming-head"><span>Upcoming</span><span class="count" id="count-upcoming-weekly">0</span></div>
+<div class="cards" id="cards-weekly-upcoming"></div>
+</div>
 </section>
 <!-- MONTHLY -->
 <section class="view" id="view-monthly">
 <div class="list-head"><span class="dot dot-monthly"></span><h2>Monthly</h2><span class="count" id="count-monthly">0</span></div>
 <div class="list-hint">Swipe done to clear it — it'll come back next month.</div>
 <div class="cards" id="cards-monthly"></div>
+<div class="upcoming" id="upcoming-monthly" style="display:none">
+<div class="upcoming-head"><span>Upcoming</span><span class="count" id="count-upcoming-monthly">0</span></div>
+<div class="cards" id="cards-monthly-upcoming"></div>
+</div>
 </section>
 <!-- FOCUS: one-off tasks + Pomodoro timer -->
 <section class="view" id="view-focus">
@@ -510,6 +526,7 @@ function advanceStaleRepeats(){
     if(moved){
       t.dueAt = due.toISOString();
       t.notifyCount = 0;
+      t.queued = true; // missed day(s) dropped; stays hidden until the next one is due
       changed = true;
       scheduleNativeReminders(t);
     }
@@ -547,6 +564,8 @@ function pausedUntilText(t){
 // A repeating task's next occurrence is scheduled the moment the current
 // one is swiped done, but stays out of its tab until actually due — so
 // swiping it away makes it genuinely disappear, not just re-date itself.
+// Only those "queued" occurrences hide; a task you just added with a future
+// start date (or a time that already passed today) shows right away.
 function isDueTodayOrPast(iso){
   const d = new Date(iso);
   const now = new Date();
@@ -554,6 +573,7 @@ function isDueTodayOrPast(iso){
 }
 function isVisible(t){
   if(!t.repeat || !t.dueAt) return true;
+  if(!t.queued) return true;
   return isDueTodayOrPast(t.dueAt);
 }
 
@@ -567,8 +587,13 @@ function byDueThenNewest(a,b){
 }
 function render(){
   const daily = tasks.filter(t=> t.repeat==='daily' && isVisible(t)).sort(byDueAsc);
-  const weekly = tasks.filter(t=> t.repeat==='weekly' && isVisible(t)).sort(byDueAsc);
-  const monthly = tasks.filter(t=> t.repeat==='monthly' && isVisible(t)).sort(byDueAsc);
+  // Weekly/Monthly: due today or earlier goes in the main list, anything later
+  // goes in "Upcoming" below it (Daily just hides queued future occurrences).
+  const dueNow = t => !t.dueAt || isDueTodayOrPast(t.dueAt);
+  const weekly = tasks.filter(t=> t.repeat==='weekly' && dueNow(t)).sort(byDueAsc);
+  const monthly = tasks.filter(t=> t.repeat==='monthly' && dueNow(t)).sort(byDueAsc);
+  const weeklyUp = tasks.filter(t=> t.repeat==='weekly' && !dueNow(t)).sort(byDueAsc);
+  const monthlyUp = tasks.filter(t=> t.repeat==='monthly' && !dueNow(t)).sort(byDueAsc);
   const oneoff = tasks.filter(t=> !t.repeat).sort(byDueThenNewest);
 
   document.getElementById('count-daily').textContent = daily.length;
@@ -581,16 +606,25 @@ function render(){
   renderCards('cards-monthly', monthly, 'monthly', 'Nothing due this month yet.');
   renderCards('cards-oneoff', oneoff, 'oneoff', 'Nothing here yet — tap + whenever you\'re ready.');
 
+  [['weekly', weeklyUp], ['monthly', monthlyUp]].forEach(([name, list])=>{
+    document.getElementById('upcoming-' + name).style.display = list.length ? '' : 'none';
+    document.getElementById('count-upcoming-' + name).textContent = list.length;
+    renderCards('cards-' + name + '-upcoming', list, name, '', true);
+  });
+
   renderTaskPicker();
   save(STORE_KEY, tasks);
 }
 
 const CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>';
 
-function renderCards(elId, list, accent, emptyText){
+// upcoming: a later occurrence — dimmed, tap to open it, but no swipe (so you
+// can't accidentally "complete" next week's task today).
+function renderCards(elId, list, accent, emptyText, upcoming){
   const el = document.getElementById(elId);
   el.innerHTML = '';
   if(list.length === 0){
+    if(upcoming) return;
     const p = document.createElement('div');
     p.className = 'empty';
     p.textContent = emptyText;
@@ -607,7 +641,7 @@ function renderCards(elId, list, accent, emptyText){
     wrap.appendChild(bg);
 
     const card = document.createElement('div');
-    card.className = 'card accent-' + accent;
+    card.className = 'card accent-' + accent + (upcoming ? ' upcoming-card' : '');
 
     const title = document.createElement('div');
     title.className = 'card-title';
@@ -647,7 +681,12 @@ function renderCards(elId, list, accent, emptyText){
     wrap.appendChild(card);
     el.appendChild(wrap);
 
-    attachSwipe(wrap, card, bg, t.id);
+    if(upcoming){
+      bg.remove();
+      card.addEventListener('click', ()=> openDetail(t.id));
+    } else {
+      attachSwipe(wrap, card, bg, t.id);
+    }
   });
 }
 
@@ -717,7 +756,7 @@ function completeTask(id){
     const next = {
       id: uid(), title: t.title, estimateMin: t.estimateMin,
       createdAt: new Date().toISOString(), dueAt: nextDue.toISOString(),
-      notifyCount: 0, repeat: t.repeat, every: t.every || 1
+      notifyCount: 0, repeat: t.repeat, every: t.every || 1, queued: true
     };
     tasks.push(next);
     scheduleNativeReminders(next);
