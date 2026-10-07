@@ -323,11 +323,17 @@ Focus
 </div>
 <div class="field">
 <label for="taskTime" id="dueLabel">Time &amp; remind me (optional)</label>
-<input id="taskTime" type="time">
+<div style="display:flex; gap:8px;">
+<input id="taskTime" type="text" inputmode="numeric" placeholder="9:30" maxlength="5" autocomplete="off" style="flex:1; min-width:0;">
+<select id="taskAmPm" style="flex:none; width:92px;">
+<option value="AM">AM</option>
+<option value="PM">PM</option>
+</select>
+</div>
 </div>
 <div class="field">
 <label for="taskDate" id="dateLabel">Date (optional — defaults to today)</label>
-<input id="taskDate" type="date">
+<input id="taskDate" type="text" inputmode="numeric" placeholder="MM/DD/YYYY" maxlength="10" autocomplete="off">
 </div>
 <div class="field" id="everyField" style="display:none">
 <label for="taskEvery">Repeats</label>
@@ -730,6 +736,63 @@ const ADD_COPY = {
   oneoff: { title:'New task', sub:'A one-off — no repeat.', due:'Time & remind me (optional)', date:'Date (optional — defaults to today)' }
 };
 
+// Typed time/date entry. The fields are plain text boxes with a numeric
+// keypad (inputmode="numeric") that add the ":" and "/" themselves as you
+// type, then these parse them back into "HH:MM" and "YYYY-MM-DD".
+function formatTimeTyping(raw){
+  const d = raw.replace(/\D/g, '').slice(0, 4);
+  return d.length > 2 ? d.slice(0, -2) + ':' + d.slice(-2) : d;
+}
+function formatDateTyping(raw){
+  const d = raw.replace(/\D/g, '').slice(0, 8);
+  let out = d.slice(0, 2);
+  if(d.length > 2) out += '/' + d.slice(2, 4);
+  if(d.length > 4) out += '/' + d.slice(4);
+  return out;
+}
+// Returns '' for empty, null for invalid, else "HH:MM" (24h). 1-12 uses the
+// AM/PM toggle; 0 or 13-23 is read as 24-hour time and ignores it.
+function parseTimeInput(raw, ampm){
+  const d = raw.replace(/\D/g, '');
+  if(!d) return '';
+  if(d.length > 4) return null;
+  let h = d.length <= 2 ? parseInt(d, 10) : parseInt(d.slice(0, -2), 10);
+  const m = d.length <= 2 ? 0 : parseInt(d.slice(-2), 10);
+  if(isNaN(h) || m > 59 || h > 23) return null;
+  if(h >= 1 && h <= 12){
+    if(ampm === 'PM' && h < 12) h += 12;
+    else if(ampm === 'AM' && h === 12) h = 0;
+  }
+  return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+}
+// Returns '' for empty, null for invalid, else "YYYY-MM-DD". MMDD uses this
+// year (or next, if that day has passed); MMDDYY reads as 20YY.
+function parseDateInput(raw){
+  const d = raw.replace(/\D/g, '');
+  if(!d) return '';
+  if(![4, 6, 8].includes(d.length)) return null;
+  const mo = parseInt(d.slice(0, 2), 10);
+  const da = parseInt(d.slice(2, 4), 10);
+  const now = new Date();
+  let y;
+  if(d.length === 4) y = now.getFullYear();
+  else if(d.length === 6) y = 2000 + parseInt(d.slice(4), 10);
+  else y = parseInt(d.slice(4), 10);
+  let check = new Date(y, mo - 1, da);
+  if(check.getFullYear() !== y || check.getMonth() !== mo - 1 || check.getDate() !== da) return null;
+  if(d.length === 4){
+    const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
+    if(check.getTime() < startOfToday.getTime()){ y += 1; check = new Date(y, mo - 1, da); }
+  }
+  return y + '-' + String(mo).padStart(2, '0') + '-' + String(da).padStart(2, '0');
+}
+document.getElementById('taskTime').addEventListener('input', (e)=>{
+  e.target.value = formatTimeTyping(e.target.value);
+});
+document.getElementById('taskDate').addEventListener('input', (e)=>{
+  e.target.value = formatDateTyping(e.target.value);
+});
+
 // Turns the add sheet's time + optional date into a due timestamp. A date is
 // optional: with only a time, the task starts today at that time — or
 // tomorrow if that time has already passed, so it doesn't open as overdue.
@@ -759,6 +822,7 @@ function openAddSheet(ctx){
   document.getElementById('taskTitle').value = '';
   document.getElementById('taskEstimate').value = '';
   document.getElementById('taskTime').value = '';
+  document.getElementById('taskAmPm').value = new Date().getHours() >= 12 ? 'PM' : 'AM';
   document.getElementById('taskDate').value = '';
   document.getElementById('taskEvery').value = '1';
   document.getElementById('everyField').style.display = ctx === 'weekly' ? '' : 'none';
@@ -778,8 +842,10 @@ document.getElementById('saveAdd').addEventListener('click', ()=>{
   const title = document.getElementById('taskTitle').value.trim();
   if(!title){ toast('Give it a name first'); return; }
   const est = parseInt(document.getElementById('taskEstimate').value, 10);
-  const timeVal = document.getElementById('taskTime').value;
-  const dateVal = document.getElementById('taskDate').value;
+  const timeVal = parseTimeInput(document.getElementById('taskTime').value, document.getElementById('taskAmPm').value);
+  const dateVal = parseDateInput(document.getElementById('taskDate').value);
+  if(timeVal === null){ toast('Time should look like 9:30'); return; }
+  if(dateVal === null){ toast('Date should look like 10/21/2026'); return; }
   const repeat = addContext === 'oneoff' ? null : addContext;
   if(repeat && !timeVal){ toast('Pick a time so this has something to repeat from'); return; }
   if(dateVal && !timeVal){ toast('Pick a time for that date'); return; }
