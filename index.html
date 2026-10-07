@@ -354,8 +354,18 @@ Focus
 <h3 id="detailTitle">Task</h3>
 <div id="detailMeta" class="focus-hint" style="text-align:left; margin-bottom:14px; max-width:none;"></div>
 <div class="field">
-<label for="detailDue" id="detailDueLabel">Due &amp; remind me</label>
-<input id="detailDue" type="datetime-local">
+<label for="detailTime" id="detailDueLabel">Time &amp; remind me</label>
+<div style="display:flex; gap:8px;">
+<input id="detailTime" type="text" inputmode="numeric" placeholder="9:30" maxlength="5" autocomplete="off" style="flex:1; min-width:0;">
+<select id="detailAmPm" style="flex:none; width:92px;">
+<option value="AM">AM</option>
+<option value="PM">PM</option>
+</select>
+</div>
+</div>
+<div class="field">
+<label for="detailDate" id="detailDateLabel">Date</label>
+<input id="detailDate" type="text" inputmode="numeric" placeholder="MM/DD/YYYY" maxlength="10" autocomplete="off">
 </div>
 <div class="field" id="detailEveryField" style="display:none">
 <label for="detailEvery">Repeats</label>
@@ -545,12 +555,6 @@ function isDueTodayOrPast(iso){
 function isVisible(t){
   if(!t.repeat || !t.dueAt) return true;
   return isDueTodayOrPast(t.dueAt);
-}
-function toDatetimeLocalValue(iso){
-  const d = new Date(iso);
-  const pad = n => n.toString().padStart(2,'0');
-  return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate())
-    + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
 }
 
 /* ---------- render ---------- */
@@ -875,6 +879,24 @@ document.getElementById('saveAdd').addEventListener('click', ()=>{
 /* ---------- task detail ---------- */
 const detailScrim = document.getElementById('detailScrim');
 let activeTaskId = null;
+// Fills the detail sheet's typed time/date boxes from a stored due timestamp.
+function fillDetailDue(iso){
+  const timeEl = document.getElementById('detailTime');
+  const ampmEl = document.getElementById('detailAmPm');
+  const dateEl = document.getElementById('detailDate');
+  if(!iso){ timeEl.value = ''; dateEl.value = ''; ampmEl.value = new Date().getHours() >= 12 ? 'PM' : 'AM'; return; }
+  const d = new Date(iso);
+  const h = d.getHours();
+  timeEl.value = (h % 12 || 12) + ':' + String(d.getMinutes()).padStart(2, '0');
+  ampmEl.value = h >= 12 ? 'PM' : 'AM';
+  dateEl.value = String(d.getMonth() + 1).padStart(2, '0') + '/' + String(d.getDate()).padStart(2, '0') + '/' + d.getFullYear();
+}
+document.getElementById('detailTime').addEventListener('input', (e)=>{
+  e.target.value = formatTimeTyping(e.target.value);
+});
+document.getElementById('detailDate').addEventListener('input', (e)=>{
+  e.target.value = formatDateTyping(e.target.value);
+});
 function openDetail(id){
   activeTaskId = id;
   const t = tasks.find(x=>x.id===id);
@@ -883,10 +905,13 @@ function openDetail(id){
   document.getElementById('detailMeta').textContent = t.estimateMin
     ? ('Estimated ' + t.estimateMin + ' min')
     : 'No time estimate';
-  document.getElementById('detailDue').value = t.dueAt ? toDatetimeLocalValue(t.dueAt) : '';
+  fillDetailDue(t.dueAt);
   document.getElementById('detailDueLabel').textContent = t.repeat
-    ? 'Due & remind me (next occurrence)'
-    : 'Due date';
+    ? 'Time & remind me (next occurrence)'
+    : 'Time & remind me';
+  document.getElementById('detailDateLabel').textContent = t.repeat
+    ? 'Date of next occurrence (empty = today)'
+    : 'Date (empty = today)';
   // Clearing the due date on a repeating task would break its schedule,
   // so that option only shows for one-off tasks.
   document.getElementById('clearDetailDue').style.display = t.repeat ? 'none' : '';
@@ -897,9 +922,13 @@ function openDetail(id){
 document.getElementById('saveDetailDue').addEventListener('click', ()=>{
   const t = tasks.find(x=>x.id===activeTaskId);
   if(!t) return;
-  const val = document.getElementById('detailDue').value;
-  if(!val){ toast('Pick a date and time first'); return; }
-  t.dueAt = new Date(val).toISOString();
+  const timeVal = parseTimeInput(document.getElementById('detailTime').value, document.getElementById('detailAmPm').value);
+  const dateVal = parseDateInput(document.getElementById('detailDate').value);
+  if(timeVal === null){ toast('Time should look like 9:30'); return; }
+  if(dateVal === null){ toast('Date should look like 10/21/2026'); return; }
+  if(!timeVal){ toast('Pick a time first'); return; }
+  const due = resolveDue(timeVal, dateVal);
+  t.dueAt = due.dueAt.toISOString();
   t.notifyCount = 0;
   if(t.repeat === 'weekly') t.every = parseInt(document.getElementById('detailEvery').value, 10);
   render();
@@ -914,7 +943,7 @@ document.getElementById('clearDetailDue').addEventListener('click', ()=>{
   if(!t) return;
   t.dueAt = null;
   t.notifyCount = 0;
-  document.getElementById('detailDue').value = '';
+  fillDetailDue(null);
   render();
   cancelNativeReminders(t.id);
   toast('Reminder cleared');
