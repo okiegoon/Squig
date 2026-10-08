@@ -391,8 +391,8 @@ Focus
 </select>
 </div>
 <div class="sheet-secondary-row" id="detailDueActions" style="margin-top:0; margin-bottom:16px;">
-<button class="btn btn-ghost" id="saveDetailDue">Save</button>
-<button class="btn btn-ghost" id="clearDetailDue">Clear due date</button>
+<button class="btn btn-ghost" id="saveDetailDue">Save changes</button>
+<button class="btn btn-ghost" id="clearDetailDue">Cancel reminder</button>
 </div>
 <div class="sheet-actions">
 <button class="btn btn-primary" id="completeTaskBtn">Mark complete</button>
@@ -669,7 +669,12 @@ function renderCards(elId, list, accent, emptyText, upcoming){
       due.textContent = (state === 'due-overdue' ? 'was due ' : 'due ') + fmtDue(t.dueAt);
       meta.appendChild(due);
 
-      if(t.repeat && nagsDueByNow(t) >= MAX_NAGS){
+      if(t.repeat && t.remindersOff){
+        const off = document.createElement('span');
+        off.className = 'badge paused';
+        off.textContent = 'Reminders off';
+        meta.appendChild(off);
+      } else if(t.repeat && nagsDueByNow(t) >= MAX_NAGS){
         const paused = document.createElement('span');
         paused.className = 'badge paused';
         paused.textContent = pausedUntilText(t);
@@ -756,7 +761,8 @@ function completeTask(id){
     const next = {
       id: uid(), title: t.title, estimateMin: t.estimateMin,
       createdAt: new Date().toISOString(), dueAt: nextDue.toISOString(),
-      notifyCount: 0, repeat: t.repeat, every: t.every || 1, queued: true
+      notifyCount: 0, repeat: t.repeat, every: t.every || 1, queued: true,
+      remindersOff: !!t.remindersOff
     };
     tasks.push(next);
     scheduleNativeReminders(next);
@@ -936,6 +942,20 @@ document.getElementById('detailTime').addEventListener('input', (e)=>{
 document.getElementById('detailDate').addEventListener('input', (e)=>{
   e.target.value = formatDateTyping(e.target.value);
 });
+// The Cancel button means different things by task type. A repeating task
+// needs its due time to keep its schedule, so cancelling its reminder just
+// turns the alerts off (and the same button turns them back on). A one-off's
+// reminder IS its due date, so cancelling it clears the date.
+function syncCancelButton(t){
+  const btn = document.getElementById('clearDetailDue');
+  if(t.repeat){
+    btn.style.display = '';
+    btn.textContent = t.remindersOff ? 'Turn reminders on' : 'Cancel reminder';
+  } else {
+    btn.style.display = t.dueAt ? '' : 'none';
+    btn.textContent = 'Cancel reminder';
+  }
+}
 function openDetail(id){
   activeTaskId = id;
   const t = tasks.find(x=>x.id===id);
@@ -951,9 +971,7 @@ function openDetail(id){
   document.getElementById('detailDateLabel').textContent = t.repeat
     ? 'Date of next occurrence (empty = today)'
     : 'Date (empty = today)';
-  // Clearing the due date on a repeating task would break its schedule,
-  // so that option only shows for one-off tasks.
-  document.getElementById('clearDetailDue').style.display = t.repeat ? 'none' : '';
+  syncCancelButton(t);
   document.getElementById('detailEveryField').style.display = t.repeat === 'weekly' ? '' : 'none';
   document.getElementById('detailEvery').value = String(t.every === 2 ? 2 : 1);
   detailScrim.classList.add('show');
@@ -971,21 +989,39 @@ document.getElementById('saveDetailDue').addEventListener('click', ()=>{
   t.notifyCount = 0;
   if(t.repeat === 'weekly') t.every = parseInt(document.getElementById('detailEvery').value, 10);
   render();
-  if(t.repeat){
+  if(t.repeat && !t.remindersOff){
     ensureNotificationPermission();
     scheduleNativeReminders(t);
   }
-  toast('Saved');
+  detailScrim.classList.remove('show');
+  toast(t.repeat && t.remindersOff ? 'Saved · reminders are still off' : 'Saved');
 });
 document.getElementById('clearDetailDue').addEventListener('click', ()=>{
   const t = tasks.find(x=>x.id===activeTaskId);
   if(!t) return;
+  if(t.repeat){
+    t.remindersOff = !t.remindersOff;
+    t.notifyCount = 0;
+    render();
+    if(t.remindersOff){
+      cancelNativeReminders(t.id);
+      toast('Reminders off for this task');
+    } else {
+      ensureNotificationPermission();
+      scheduleNativeReminders(t);
+      toast('Reminders back on');
+    }
+    syncCancelButton(t);
+    detailScrim.classList.remove('show');
+    return;
+  }
   t.dueAt = null;
   t.notifyCount = 0;
   fillDetailDue(null);
   render();
   cancelNativeReminders(t.id);
-  toast('Reminder cleared');
+  detailScrim.classList.remove('show');
+  toast('Reminder cancelled');
 });
 document.getElementById('completeTaskBtn').addEventListener('click', ()=>{
   completeTask(activeTaskId);
@@ -1205,7 +1241,7 @@ async function cancelNativeReminders(taskId){
 async function scheduleNativeReminders(t){
   if(!Native.isNative || !Native.LocalNotifications) return;
   await cancelNativeReminders(t.id);
-  if(!t.repeat || !t.dueAt) return;
+  if(!t.repeat || !t.dueAt || t.remindersOff) return;
   // Pre-schedule the next few occurrences too, so alerts keep firing even if
   // the app isn't opened for a few days. Opening the app re-runs this and
   // tops the window back up.
@@ -1258,7 +1294,7 @@ function checkReminders(){
   let changed = advanceStaleRepeats();
   if(!Native.isNative){
     tasks.forEach(t=>{
-      if(!t.dueAt || !t.repeat) return; // one-off Focus tasks don't nag — they're meant to be done right away
+      if(!t.dueAt || !t.repeat || t.remindersOff) return; // one-off Focus tasks don't nag — they're meant to be done right away
       const due = nagsDueByNow(t);
       const fired = t.notifyCount || 0;
       if(due > fired && fired < MAX_NAGS){
