@@ -16,6 +16,12 @@ no cloud — everything lives in your phone's local storage.
   and it vanishes until its next occurrence is actually due, no manual
   re-adding. **Focus** (amber) is where one-off, non-repeating tasks live,
   alongside a Pomodoro-style timer for sitting down and grinding through one.
+- **Upcoming** (Weekly and Monthly tabs): a task whose next due date is
+  after today — one you added with a future start date, or the next
+  occurrence after you swipe one done — sits in a dimmed **Upcoming** list at
+  the bottom of the tab, with its own count. Tap one to edit it; there's no
+  swipe, so you can't complete next week's task by accident. Daily has no
+  Upcoming list: a queued future daily just stays hidden until it's due.
 - **The tab you add from decides the type.** Tap + on the Daily tab and
   you're adding a daily task. Repeat type (daily / weekly / monthly) is
   fixed at creation — to change it, delete and re-add from the right tab.
@@ -23,14 +29,21 @@ no cloud — everything lives in your phone's local storage.
   weeks), chosen in the add sheet and editable later in the task's detail
   sheet. Bi-weekly tasks show an "every 2 wks" badge.
 - **Swipe to complete**, any tab: swipe a card either direction to mark it
-  done. Tap it instead to edit its due date/reminder, jump into a focus
-  session, or delete it.
+  done. Tap it instead to open its task sheet: edit the time and date
+  (**Save changes**), **Cancel reminder** / **Turn reminders on**, mark it
+  complete, start a focus session, or delete it.
 - **Time first, date optional**: Daily/Weekly/Monthly tasks require a time,
   since that's what anchors the repeat schedule. A date is optional: leave
   it empty and the task starts today (or tomorrow, if that time has already
   passed). Add a date to start later — for weekly tasks it sets the weekday,
   for monthly tasks the day of the month. One-off (Focus) tasks can have a
   time and date but don't have to.
+- **Typed time and date, no pickers.** Both fields bring up a number pad and
+  add the separators as you type. Time is `H:MM` plus an AM/PM toggle (`930`
+  becomes `9:30`; `13:15` is read as 24-hour). Date is `MM/DD/YYYY` (`10212026`
+  becomes `10/21/2026`; `1021` means this year, or next year if that day has
+  passed). Use two digits for month and day, so Jan 2 is `01022026`. The same
+  boxes appear in the add sheet and the task sheet.
 - **Focus tab's Timer** sub-view is the original Pomodoro ring (25 / 50 / 10
   min, or a 5 min break) — tap "Start focus session" on any task, from any
   tab, to attach it and jump straight there.
@@ -55,10 +68,16 @@ are skipped and it rolls forward to its next occurrence with fresh alerts.
 This runs whenever the app is open. In the browser, if several alerts have
 come due while the app was closed, only the newest one fires.
 
+**Cancelling a reminder.** In a task's sheet, **Cancel reminder** turns that
+task's alerts off. On a repeating task the task and its schedule stay, the
+card shows a "Reminders off" badge, the setting carries over to each next
+occurrence, and the same button becomes **Turn reminders on**. On a one-off
+task it clears the due date.
+
 Reminders behave differently depending on how you run Squig:
 
 - **Web / installed PWA:** Squig asks for notification permission the first
-  time you set a due date, then checks every 20 seconds while the app or tab
+  time you set a due time, then checks every 20 seconds while the app or tab
   is open (including backgrounded). It **can't** notify you once the app is
   fully closed or the phone restarts — browsers can't schedule that without
   a push server.
@@ -104,8 +123,11 @@ from GitHub Pages. The repo is `https://github.com/okiegoon/Squig`.
    / **Install app**. It gets its own icon, no browser bar, and works
    offline.
 
-After you push a change, a phone with the app installed may need a full close
-and reopen to pick up the new version, because the service worker caches it.
+After you push a change, give GitHub Pages a minute or two to redeploy. The
+service worker (`sw.js`) fetches from the network first and only falls back
+to its cache offline, so a normal reload should pick up the new version. If
+it doesn't, close and reopen the app once. If you ever change `sw.js`'s
+caching, bump the `CACHE` name (currently `squig-v7`) so phones reinstall it.
 
 ## 3. Build the Android app (`.apk`)
 
